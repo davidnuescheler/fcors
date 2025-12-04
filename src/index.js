@@ -152,6 +152,35 @@ function generateFormHTML(baseUrl) {
       border: 1px solid #f5c6cb;
       color: #721c24;
     }
+    .footer {
+      margin-top: 30px;
+      padding-top: 20px;
+      border-top: 2px solid #e1e8ed;
+      text-align: center;
+      color: #666;
+      font-size: 0.9rem;
+    }
+    .footer a {
+      color: #667eea;
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .footer a:hover {
+      text-decoration: underline;
+    }
+    .warning {
+      background: #fff3cd;
+      border-left: 4px solid #ffc107;
+      padding: 12px 16px;
+      margin-top: 20px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      color: #856404;
+    }
+    .warning strong {
+      display: block;
+      margin-bottom: 4px;
+    }
   </style>
 </head>
 <body>
@@ -193,6 +222,15 @@ function generateFormHTML(baseUrl) {
         Use <code>?url=</code> to proxy any URL with CORS headers.<br>
         Add <code>&reveal=headers</code> to get response headers as JSON.
       </p>
+    </div>
+    
+    <div class="warning">
+      <strong>⚠️ Authorization Required</strong>
+      You may only proxy URLs for which you have explicit authorization. Unauthorized access may be illegal.
+    </div>
+    
+    <div class="footer">
+      By using this service, you agree to the <a href="https://github.com/davidnuescheler/fcors/blob/main/TERMS.md" target="_blank">Terms of Use</a>
     </div>
   </div>
   
