@@ -2,6 +2,11 @@ name = "fcors"
 main = "src/index.js"
 compatibility_date = "2024-12-04"
 
+[[rules]]
+type = "Data"
+globs = ["**/*.ico"]
+fallthrough = true
+
 # Uncomment to configure a custom domain
 # routes = [
 #   { pattern = "example.com/*", zone_name = "example.com" }

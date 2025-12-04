@@ -3,6 +3,8 @@
  * Proxies requests to URLs passed via the ?url= query parameter
  */
 
+import faviconData from './favicon.ico';
+
 /**
  * Generate HTML form for the landing page
  * @param {string} baseUrl - The base URL of the worker
@@ -437,6 +439,20 @@ function handleOptions() {
   });
 }
 
+/**
+ * Handle favicon requests
+ * @returns {Response} ICO favicon response
+ */
+function handleFavicon() {
+  return new Response(faviconData, {
+    status: 200,
+    headers: {
+      'Content-Type': 'image/x-icon',
+      'Cache-Control': 'public, max-age=86400',
+    },
+  });
+}
+
 export default {
   /**
    * Fetch event handler
@@ -444,6 +460,13 @@ export default {
    * @returns {Promise<Response>} The response
    */
   async fetch(request) {
+    const url = new URL(request.url);
+
+    // Handle favicon requests
+    if (url.pathname === '/favicon.ico') {
+      return handleFavicon();
+    }
+
     // Handle CORS preflight requests
     if (request.method === 'OPTIONS') {
       return handleOptions();
