@@ -1,0 +1,27 @@
+{
+  "name": "fcors",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker proxy with CORS support",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix"
+  },
+  "keywords": [
+    "cloudflare",
+    "worker",
+    "proxy",
+    "cors"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "eslint-config-airbnb-base": "^15.0.0",
+    "eslint-plugin-import": "^2.29.1",
+    "wrangler": "^3.22.0"
+  }
+}
+
