@@ -312,6 +312,7 @@ async function handleRequest(request) {
   const url = new URL(request.url);
   const targetUrl = url.searchParams.get('url');
   const reveal = url.searchParams.get('reveal');
+  const origin = request.headers.get('origin') || '*';
 
   // Show form if no URL is provided
   if (!targetUrl) {
@@ -320,7 +321,7 @@ async function handleRequest(request) {
       status: 200,
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
-        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Origin': origin,
       },
     });
   }
@@ -339,7 +340,8 @@ async function handleRequest(request) {
         status: 400,
         headers: {
           'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Origin': origin,
+          'Access-Control-Allow-Credentials': 'true',
         },
       },
     );
@@ -356,18 +358,28 @@ async function handleRequest(request) {
         status: 400,
         headers: {
           'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Origin': origin,
+          'Access-Control-Allow-Credentials': 'true',
         },
       },
     );
   }
 
   try {
+    // Process headers - handle x-cookie -> cookie conversion
+    const proxyHeaders = new Headers(request.headers);
+    const xCookie = proxyHeaders.get('x-cookie');
+    if (xCookie) {
+      proxyHeaders.set('cookie', xCookie);
+      proxyHeaders.delete('x-cookie');
+    }
+
     // Create a new request with the target URL
     const proxyRequest = new Request(targetUrl, {
       method: request.method,
-      headers: request.headers,
+      headers: proxyHeaders,
       body: ['GET', 'HEAD'].includes(request.method) ? undefined : request.body,
+      redirect: reveal === 'headers' ? 'manual' : 'follow',
     });
 
     // Fetch the target URL
@@ -391,7 +403,8 @@ async function handleRequest(request) {
           status: 200,
           headers: {
             'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Origin': origin,
+            'Access-Control-Allow-Credentials': 'true',
           },
         },
       );
@@ -401,7 +414,8 @@ async function handleRequest(request) {
     const modifiedResponse = new Response(response.body, response);
 
     // Add CORS headers
-    modifiedResponse.headers.set('Access-Control-Allow-Origin', '*');
+    modifiedResponse.headers.set('Access-Control-Allow-Origin', origin);
+    modifiedResponse.headers.set('Access-Control-Allow-Credentials', 'true');
     modifiedResponse.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     modifiedResponse.headers.set('Access-Control-Allow-Headers', '*');
 
@@ -416,7 +430,8 @@ async function handleRequest(request) {
         status: 502,
         headers: {
           'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Origin': origin,
+          'Access-Control-Allow-Credentials': 'true',
         },
       },
     );
@@ -425,13 +440,16 @@ async function handleRequest(request) {
 
 /**
  * Handle CORS preflight requests
+ * @param {Request} request - The incoming request
  * @returns {Response} CORS preflight response
  */
-function handleOptions() {
+function handleOptions(request) {
+  const origin = request.headers.get('origin') || '*';
   return new Response(null, {
     status: 204,
     headers: {
-      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Origin': origin,
+      'Access-Control-Allow-Credentials': 'true',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': '*',
       'Access-Control-Max-Age': '86400',
@@ -469,7 +487,7 @@ export default {
 
     // Handle CORS preflight requests
     if (request.method === 'OPTIONS') {
-      return handleOptions();
+      return handleOptions(request);
     }
 
     return handleRequest(request);
