@@ -5,9 +5,10 @@ A Cloudflare Worker that acts as a proxy for URLs with CORS support.
 ## Features
 
 - 🔒 Proxy any HTTP/HTTPS URL
-- 🌐 Full CORS support
+- 🌐 Full CORS support with credentials
 - ⚡ Runs on Cloudflare's edge network
 - 🛡️ Basic security validation
+- 🔑 API key authentication via KV
 - 📝 ESLint with Airbnb base configuration
 - 🎨 Beautiful web interface with interactive form
 - 📊 Headers inspection mode
@@ -88,6 +89,7 @@ fetch('https://your-worker.workers.dev/?url=https://api.example.com/data&reveal=
 ## Query Parameters
 
 - `url` (required): The target URL to proxy
+- `key` (required): API key for authentication (or use `x-api-key` header)
 - `reveal` (optional): Set to `headers` to return response status and headers as JSON instead of the response body
 
 ### Reveal Headers Response
@@ -105,8 +107,92 @@ When using `?reveal=headers`, the response will be a JSON object:
 }
 ```
 
+## API Key Authentication
+
+The proxy requires a valid API key for all proxy requests (the web form is accessible without a key).
+
+### Setting Up KV Namespace
+
+1. Create the KV namespace:
+   ```bash
+   wrangler kv:namespace create "API_KEYS"
+   ```
+
+2. Copy the generated namespace ID and update `wrangler.toml`:
+   ```toml
+   [[kv_namespaces]]
+   binding = "API_KEYS"
+   id = "YOUR_ACTUAL_NAMESPACE_ID"
+   ```
+
+### Adding API Keys
+
+Add API keys to the KV store. The value can be a simple identifier or a JSON config with restrictions:
+
+```bash
+# Simple key - no restrictions (allows all origins and URLs)
+wrangler kv:key put --binding=API_KEYS "your-api-key-here" "user@example.com"
+
+# Key with origin restrictions only
+wrangler kv:key put --binding=API_KEYS "key-123" '{"origins":["https://mysite.com","https://*.mysite.com"]}'
+
+# Key with target URL restrictions only
+wrangler kv:key put --binding=API_KEYS "key-456" '{"urls":["https://api.example.com/*","https://*.myservice.com/*"]}'
+
+# Key with both restrictions
+wrangler kv:key put --binding=API_KEYS "key-789" '{"origins":["https://myapp.com"],"urls":["https://api.github.com/*"]}'
+
+# List all keys
+wrangler kv:key list --binding=API_KEYS
+```
+
+### Glob Patterns
+
+Use `*` as a wildcard in patterns:
+
+| Pattern | Matches |
+|---------|---------|
+| `https://example.com` | Exact match only |
+| `https://*.example.com` | Any subdomain of example.com |
+| `https://api.example.com/*` | Any path under api.example.com |
+| `https://*.example.com/*` | Any subdomain and any path |
+| `*` | Everything (use with caution) |
+
+### Key Configuration Format
+
+```json
+{
+  "origins": ["https://allowed-origin.com", "https://*.allowed-domain.com"],
+  "urls": ["https://allowed-target.com/*", "https://*.api.com/*"]
+}
+```
+
+- **origins**: Array of allowed request origins (where the request comes from)
+- **urls**: Array of allowed target URLs (what URLs can be proxied)
+- If an array is empty or missing, that restriction is not applied
+
+### Using API Keys
+
+Provide the API key via header or query parameter:
+
+```bash
+# Via header (recommended)
+curl -H "x-api-key: your-api-key" "https://fcors.org/?url=https://api.example.com/data"
+
+# Via query parameter
+curl "https://fcors.org/?url=https://api.example.com/data&key=your-api-key"
+```
+
+```javascript
+// JavaScript with header
+fetch('https://fcors.org/?url=https://api.example.com/data', {
+  headers: { 'x-api-key': 'your-api-key' }
+})
+```
+
 ## Security
 
+- API key required for all proxy requests
 - Only HTTP and HTTPS protocols are allowed
 - URL validation is performed on all requests
 - CORS headers are automatically added to all responses

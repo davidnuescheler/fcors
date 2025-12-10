@@ -62,7 +62,7 @@ function generateFormHTML(baseUrl) {
       margin-bottom: 8px;
       font-size: 0.95rem;
     }
-    input[type="url"], select {
+    input[type="url"], input[type="text"], select {
       width: 100%;
       padding: 12px 16px;
       border: 2px solid #e1e8ed;
@@ -71,7 +71,7 @@ function generateFormHTML(baseUrl) {
       transition: border-color 0.3s;
       font-family: inherit;
     }
-    input[type="url"]:focus, select:focus {
+    input[type="url"]:focus, input[type="text"]:focus, select:focus {
       outline: none;
       border-color: #667eea;
     }
@@ -203,6 +203,17 @@ function generateFormHTML(baseUrl) {
       </div>
       
       <div class="form-group">
+        <label for="apiKey">API Key</label>
+        <input 
+          type="text" 
+          id="apiKey" 
+          name="key" 
+          placeholder="Your API key (if you need one, contact me)"
+          required
+        >
+      </div>
+      
+      <div class="form-group">
         <label for="reveal">Reveal Mode</label>
         <select id="reveal" name="reveal">
           <option value="">Proxy Response (Default)</option>
@@ -246,9 +257,10 @@ function generateFormHTML(baseUrl) {
       
       const formData = new FormData(form);
       const url = formData.get('url');
+      const key = formData.get('key');
       const reveal = formData.get('reveal');
       
-      const params = new URLSearchParams({ url });
+      const params = new URLSearchParams({ url, key });
       if (reveal) params.append('reveal', reveal);
       
       const proxyUrl = \`\${baseUrl}?\${params.toString()}\`;
@@ -280,6 +292,7 @@ function generateFormHTML(baseUrl) {
     function copyApiUrl() {
       const formData = new FormData(form);
       const url = formData.get('url');
+      const key = formData.get('key');
       const reveal = formData.get('reveal');
       
       if (!url) {
@@ -287,7 +300,12 @@ function generateFormHTML(baseUrl) {
         return;
       }
       
-      const params = new URLSearchParams({ url });
+      if (!key) {
+        alert('Please enter an API key first');
+        return;
+      }
+      
+      const params = new URLSearchParams({ url, key });
       if (reveal) params.append('reveal', reveal);
       
       const proxyUrl = \`\${baseUrl}?\${params.toString()}\`;
@@ -304,26 +322,138 @@ function generateFormHTML(baseUrl) {
 }
 
 /**
+ * Match a string against a simple glob pattern using * as wildcard
+ * @param {string} pattern - The glob pattern (e.g., "https://*.example.com/*")
+ * @param {string} str - The string to match
+ * @returns {boolean} Whether the string matches the pattern
+ */
+function matchGlob(pattern, str) {
+  // Escape regex special chars except *, then convert * to .*
+  const regexPattern = pattern
+    .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*/g, '.*');
+  const regex = new RegExp(`^${regexPattern}$`, 'i');
+  return regex.test(str);
+}
+
+/**
+ * Check if a string matches any pattern in the list
+ * @param {string[]} patterns - Array of glob patterns
+ * @param {string} str - The string to match
+ * @returns {boolean} Whether the string matches any pattern
+ */
+function matchesAnyPattern(patterns, str) {
+  if (!patterns || patterns.length === 0) return true;
+  return patterns.some((pattern) => matchGlob(pattern, str));
+}
+
+/**
+ * Validate API key against KV store and check restrictions
+ * @param {string} apiKey - The API key to validate
+ * @param {Object} env - Environment bindings
+ * @param {string} origin - The request origin
+ * @param {string} targetUrl - The target URL being proxied
+ * @param {string} host - The request host (for localhost detection)
+ * @returns {Promise<{valid: boolean, error?: string}>} Validation result
+ */
+async function validateApiKey(apiKey, env, origin, targetUrl, host) {
+  if (!apiKey) {
+    return { valid: false, error: 'Missing API key' };
+  }
+
+  try {
+    const keyData = await env.API_KEYS.get(apiKey);
+    if (keyData === null) {
+      return { valid: false, error: 'Invalid API key' };
+    }
+
+    // Parse key configuration (JSON with origins and urls arrays)
+    let config;
+    try {
+      config = JSON.parse(keyData);
+    } catch (e) {
+      // If not JSON, treat as simple identifier with no restrictions
+      return { valid: true };
+    }
+
+    // Check origin restriction
+    if (config.origins && config.origins.length > 0) {
+      const requestOrigin = origin || '';
+      // Allow same-origin requests (no origin header) for localhost or fcors.org
+      const isSameOrigin = !origin && host && (
+        host.includes('localhost')
+        || host.includes('127.0.0.1')
+        || host.includes('fcors.org')
+      );
+      if (!isSameOrigin && !matchesAnyPattern(config.origins, requestOrigin)) {
+        return {
+          valid: false,
+          error: `Origin not allowed for this API key. Received origin: "${requestOrigin}"`,
+        };
+      }
+    }
+
+    // Check target URL restriction
+    if (config.urls && config.urls.length > 0) {
+      if (!matchesAnyPattern(config.urls, targetUrl)) {
+        return {
+          valid: false,
+          error: `Target URL not allowed for this API key. Requested URL: "${targetUrl}"`,
+        };
+      }
+    }
+
+    return { valid: true };
+  } catch (error) {
+    return { valid: false, error: 'API key validation failed' };
+  }
+}
+
+/**
  * Handle incoming requests
  * @param {Request} request - The incoming request
+ * @param {Object} env - Environment bindings
  * @returns {Promise<Response>} The proxied response or error response
  */
-async function handleRequest(request) {
+async function handleRequest(request, env) {
   const url = new URL(request.url);
   const targetUrl = url.searchParams.get('url');
   const reveal = url.searchParams.get('reveal');
-  const origin = request.headers.get('origin') || '*';
+  const requestOrigin = request.headers.get('origin');
+  const corsOrigin = requestOrigin || '*';
 
-  // Show form if no URL is provided
+  // Show form if no URL is provided (no API key required for form)
   if (!targetUrl) {
     const baseUrl = `${url.protocol}//${url.host}`;
     return new Response(generateFormHTML(baseUrl), {
       status: 200,
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
-        'Access-Control-Allow-Origin': origin,
+        'Access-Control-Allow-Origin': corsOrigin,
       },
     });
+  }
+
+  // Check API key (from header or query param)
+  const apiKey = request.headers.get('x-api-key') || url.searchParams.get('key');
+  const { host } = url;
+  const keyValidation = await validateApiKey(apiKey, env, requestOrigin, targetUrl, host);
+
+  if (!keyValidation.valid) {
+    return new Response(
+      JSON.stringify({
+        error: 'Unauthorized',
+        message: keyValidation.error || 'Invalid or missing API key',
+      }),
+      {
+        status: 401,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': corsOrigin,
+          'Access-Control-Allow-Credentials': 'true',
+        },
+      },
+    );
   }
 
   // Validate URL format
@@ -340,7 +470,7 @@ async function handleRequest(request) {
         status: 400,
         headers: {
           'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': origin,
+          'Access-Control-Allow-Origin': corsOrigin,
           'Access-Control-Allow-Credentials': 'true',
         },
       },
@@ -358,7 +488,7 @@ async function handleRequest(request) {
         status: 400,
         headers: {
           'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': origin,
+          'Access-Control-Allow-Origin': corsOrigin,
           'Access-Control-Allow-Credentials': 'true',
         },
       },
@@ -403,7 +533,7 @@ async function handleRequest(request) {
           status: 200,
           headers: {
             'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': origin,
+            'Access-Control-Allow-Origin': corsOrigin,
             'Access-Control-Allow-Credentials': 'true',
           },
         },
@@ -413,11 +543,18 @@ async function handleRequest(request) {
     // Clone the response so we can modify headers
     const modifiedResponse = new Response(response.body, response);
 
+    // Collect all header names from the response to expose them
+    const responseHeaders = [];
+    response.headers.forEach((value, name) => {
+      responseHeaders.push(name);
+    });
+
     // Add CORS headers
-    modifiedResponse.headers.set('Access-Control-Allow-Origin', origin);
+    modifiedResponse.headers.set('Access-Control-Allow-Origin', corsOrigin);
     modifiedResponse.headers.set('Access-Control-Allow-Credentials', 'true');
-    modifiedResponse.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    modifiedResponse.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
     modifiedResponse.headers.set('Access-Control-Allow-Headers', '*');
+    modifiedResponse.headers.set('Access-Control-Expose-Headers', responseHeaders.join(', '));
 
     return modifiedResponse;
   } catch (error) {
@@ -430,7 +567,7 @@ async function handleRequest(request) {
         status: 502,
         headers: {
           'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': origin,
+          'Access-Control-Allow-Origin': corsOrigin,
           'Access-Control-Allow-Credentials': 'true',
         },
       },
@@ -445,13 +582,15 @@ async function handleRequest(request) {
  */
 function handleOptions(request) {
   const origin = request.headers.get('origin') || '*';
+  const requestedHeaders = request.headers.get('access-control-request-headers');
+
   return new Response(null, {
     status: 204,
     headers: {
       'Access-Control-Allow-Origin': origin,
       'Access-Control-Allow-Credentials': 'true',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS, PATCH',
+      'Access-Control-Allow-Headers': requestedHeaders || '*',
       'Access-Control-Max-Age': '86400',
     },
   });
@@ -477,7 +616,7 @@ export default {
    * @param {Request} request - The incoming request
    * @returns {Promise<Response>} The response
    */
-  async fetch(request) {
+  async fetch(request, env) {
     const url = new URL(request.url);
 
     // Handle favicon requests
@@ -490,6 +629,6 @@ export default {
       return handleOptions(request);
     }
 
-    return handleRequest(request);
+    return handleRequest(request, env);
   },
 };

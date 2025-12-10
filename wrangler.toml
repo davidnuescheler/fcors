@@ -7,6 +7,11 @@ type = "Data"
 globs = ["**/*.ico"]
 fallthrough = true
 
+# KV namespace for API keys
+[[kv_namespaces]]
+binding = "API_KEYS"
+id = "546177d06f7d403394427046d224d878"
+
 # Uncomment to configure a custom domain
 # routes = [
 #   { pattern = "example.com/*", zone_name = "example.com" }
